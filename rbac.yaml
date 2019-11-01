@@ -1,0 +1,38 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: configmaps-to-volume
+subjects:
+- kind: ServiceAccount
+  name: configmaps-to-volume
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: configmaps-to-volume
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: configmaps-to-volume
+  labels:
+    app: configmaps-to-volume
+rules:
+- apiGroups: [""]
+  resources:
+  - configmaps
+  verbs:
+  - get
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: configmaps-to-volume
+  namespace: default
+  labels:
+    app: configmaps-to-volume

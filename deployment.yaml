@@ -1,0 +1,27 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: grafana
+  name: grafana
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      serviceAccount: configmaps-to-volume
+      containers:
+      - name: grafana
+        image: configmaps-to-volume:v2
+        args:
+        - --configMaps=foo
+        - --write-path=/output
+        - --namespace=default
+        volumeMounts:
+        - name: test-volume
+          mountPath: /output
+      volumes:
+      - name: test-volume
+        emptyDir: {}
