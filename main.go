@@ -7,9 +7,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -36,16 +34,15 @@ func main() {
 			panic(err) // let it crash
 		}
 
-		f, err := os.Create(fmt.Sprintf("%s/%s.json", *pathToWriteTo, configMap.Name))
-		if err != nil {
-			panic(err)
+		for fileName, data := range configMap.Data {
+			f, err := os.Create(fmt.Sprintf("%s/%s", *pathToWriteTo, fileName))
+			if err != nil {
+				panic(err)
+			}
+			_, err = f.WriteString(data)
+			if err != nil {
+				panic(err)
+			}
 		}
-
-		// The Kind and APIVersion fields are weirdly empty, setting them manually.
-		// There could be some other kubernetes magic to make this work, but as long as this is working, we can be okay with this hack.
-		configMap.Kind = "ConfigMap"
-		configMap.APIVersion = "v1"
-		s := json.NewSerializer(json.DefaultMetaFactory, scheme.Scheme, nil, true)
-		s.Encode(configMap, f)
 	}
 }
