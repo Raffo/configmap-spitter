@@ -16,7 +16,7 @@ spec:
       - name: grafana
         image: configmaps-to-volume:v2
         args:
-        - --configMaps=foo
+        - --configmaps=foo
         - --write-path=/output
         - --namespace=default
         volumeMounts:

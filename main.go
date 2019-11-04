@@ -13,7 +13,7 @@ import (
 
 func main() {
 	kubeconfig := kingpin.Flag("kubeconfig", "path to kubeconfig file.").String()
-	configmapNames := kingpin.Flag("configMaps", "List of configmaps to write").Required().Strings()
+	configmapNames := kingpin.Flag("configmaps", "List of configmaps to write").Required().Strings()
 	namespace := kingpin.Flag("namespace", "Namespace for which the configmaps will be combined").Required().String()
 	pathToWriteTo := kingpin.Flag("write-path", "Path to write to").Required().String()
 	kingpin.Parse()
