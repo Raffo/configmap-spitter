@@ -32,6 +32,17 @@ func (f *realFile) WriteString(s string) (n int, err error) {
 	return f.WriteString(s)
 }
 
+type config struct {
+	interval       time.Duration
+	stopChannel    chan int
+	client         kubernetes.Interface
+	realFS         fileSystem
+	configmapNames []string
+	namespace      string
+	pathToWriteTo  string
+	loop           bool
+}
+
 func copyConfigmaps(client kubernetes.Interface, os fileSystem, configmapNames []string, namespace, pathToWriteTo string) error {
 	for _, ns := range configmapNames {
 		configMap, err := client.CoreV1().ConfigMaps(namespace).Get(ns, v1.GetOptions{})
@@ -51,6 +62,25 @@ func copyConfigmaps(client kubernetes.Interface, os fileSystem, configmapNames [
 		}
 	}
 	return nil
+}
+
+func run(c *config, f func(client kubernetes.Interface, os fileSystem, configmapNames []string, namespace, pathToWriteTo string) error) {
+	for {
+		select {
+		case <-time.After(c.interval):
+			err := f(c.client, c.realFS, c.configmapNames, c.namespace, c.pathToWriteTo)
+			if err != nil {
+				logrus.Fatalf("error copying configmaps: %v", err)
+			}
+			if !c.loop {
+				logrus.Infoln("no loop requested, exiting.")
+				return
+			}
+		case <-c.stopChannel:
+			logrus.Infoln("stop requested, exiting.")
+			return
+		}
+	}
 }
 
 func main() {
@@ -76,20 +106,15 @@ func main() {
 
 	realFS := &realFS{}
 
-	for {
-		select {
-		case <-time.After(*interval):
-			err = copyConfigmaps(client, realFS, *configmapNames, *namespace, *pathToWriteTo)
-			if err != nil {
-				logrus.Fatalf("error copying configmaps: %v", err)
-			}
-			if !*loop {
-				logrus.Infoln("exiting")
-				os.Exit(0)
-			}
-		case <-stopChannel:
-			logrus.Infoln("exiting")
-			os.Exit(0)
-		}
-	}
+	run(&config{
+		interval:       *interval,
+		stopChannel:    stopChannel,
+		client:         client,
+		realFS:         realFS,
+		configmapNames: *configmapNames,
+		namespace:      *namespace,
+		pathToWriteTo:  *pathToWriteTo,
+		loop:           *loop,
+	}, copyConfigmaps)
+
 }

@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -32,18 +35,6 @@ func (r *fakeFS) Create(name string) (file, error) {
 	return f, nil
 }
 
-func OldTest(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	configmapNames := []string{"foo", "bar"}
-	namespace := "default"
-	pathToWriteTo := "/output"
-
-	fakeFS := &fakeFS{file: []*fakeFile{}}
-
-	err := copyConfigmaps(client, fakeFS, configmapNames, namespace, pathToWriteTo)
-	assert.Error(t, err)
-}
-
 func TestCopyConfigMap(tt *testing.T) {
 	client := fake.NewSimpleClientset()
 	fakeFS := &fakeFS{file: []*fakeFile{}}
@@ -57,6 +48,20 @@ func TestCopyConfigMap(tt *testing.T) {
 		{
 			name:          "delete all namespaces",
 			configMaps:    []string{"foo", "bar"},
+			namespace:     "default",
+			pathToWriteTo: "/foo",
+			errorExpected: false,
+		},
+		{
+			name:          "delete all namespaces",
+			configMaps:    []string{"foo"},
+			namespace:     "default",
+			pathToWriteTo: "/foo",
+			errorExpected: false,
+		},
+		{
+			name:          "delete all namespaces",
+			configMaps:    []string{},
 			namespace:     "default",
 			pathToWriteTo: "/foo",
 			errorExpected: false,
@@ -84,6 +89,67 @@ func TestCopyConfigMap(tt *testing.T) {
 				assert.Equal(t, file.name, fmt.Sprintf("%s/%s", test.pathToWriteTo, test.configMaps[index]))
 				assert.Equal(t, file.content, test.configMaps[index])
 			}
+
+			// reset the files for the next test run
+			fakeFS.file = []*fakeFile{}
 		})
 	}
+}
+
+func TestRunWithLoopDisabled(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	fakeFS := &fakeFS{file: []*fakeFile{}}
+	stopChannel := make(chan int)
+	count := 0
+	run(&config{
+		interval:       1 * time.Second,
+		stopChannel:    stopChannel,
+		client:         client,
+		realFS:         fakeFS,
+		configmapNames: []string{},
+		namespace:      "default",
+		pathToWriteTo:  "/foo",
+		loop:           false,
+	}, func(client kubernetes.Interface, os fileSystem, configmapNames []string, namespace, pathToWriteTo string) error {
+		count++
+		return nil
+	})
+}
+
+func TestRunWithLoop(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	fakeFS := &fakeFS{file: []*fakeFile{}}
+	stopChannel := make(chan int)
+	count := 0
+	m := sync.Mutex{}
+	go func() {
+
+		for {
+			select {
+			case <-time.After(1 * time.Second):
+				m.Lock()
+				if count > 2 {
+					stopChannel <- 1
+					return
+				}
+				m.Unlock()
+			}
+		}
+	}()
+	run(&config{
+		interval:       1 * time.Second,
+		stopChannel:    stopChannel,
+		client:         client,
+		realFS:         fakeFS,
+		configmapNames: []string{},
+		namespace:      "default",
+		pathToWriteTo:  "/foo",
+		loop:           true,
+	}, func(client kubernetes.Interface, os fileSystem, configmapNames []string, namespace, pathToWriteTo string) error {
+		m.Lock()
+		defer m.Unlock()
+		count++
+		return nil
+	})
+
 }
