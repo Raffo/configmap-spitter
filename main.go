@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -11,11 +12,54 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+type fileSystem interface {
+	Create(name string) (file, error)
+}
+
+type realFS struct{}
+
+func (r *realFS) Create(name string) (file, error) {
+	return os.Create(name)
+}
+
+type file interface {
+	WriteString(s string) (n int, err error)
+}
+
+type realFile struct{}
+
+func (f *realFile) WriteString(s string) (n int, err error) {
+	return f.WriteString(s)
+}
+
+func copyConfigmaps(client kubernetes.Interface, os fileSystem, configmapNames []string, namespace, pathToWriteTo string) error {
+	for _, ns := range configmapNames {
+		configMap, err := client.CoreV1().ConfigMaps(namespace).Get(ns, v1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		for fileName, data := range configMap.Data {
+			f, err := os.Create(fmt.Sprintf("%s/%s", pathToWriteTo, fileName))
+			if err != nil {
+				return err
+			}
+			_, err = f.WriteString(data)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func main() {
 	kubeconfig := kingpin.Flag("kubeconfig", "path to kubeconfig file.").String()
 	configmapNames := kingpin.Flag("configmaps", "List of configmaps to write").Required().Strings()
 	namespace := kingpin.Flag("namespace", "Namespace for which the configmaps will be combined").Required().String()
 	pathToWriteTo := kingpin.Flag("write-path", "Path to write to").Required().String()
+	loop := kingpin.Flag("loop", "Run in a never terminating loop").Default("false").Bool()
+	interval := kingpin.Flag("interval", "Interval for which the configmaps will be copied").Duration()
 	kingpin.Parse()
 
 	clientConfig, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
@@ -28,21 +72,24 @@ func main() {
 		logrus.Fatalf("cannot build kubeclient: %v", err)
 	}
 
-	for _, ns := range *configmapNames {
-		configMap, err := client.CoreV1().ConfigMaps(*namespace).Get(ns, v1.GetOptions{})
-		if err != nil {
-			panic(err) // let it crash
-		}
+	stopChannel := make(chan int)
 
-		for fileName, data := range configMap.Data {
-			f, err := os.Create(fmt.Sprintf("%s/%s", *pathToWriteTo, fileName))
+	realFS := &realFS{}
+
+	for {
+		select {
+		case <-time.After(*interval):
+			err = copyConfigmaps(client, realFS, *configmapNames, *namespace, *pathToWriteTo)
 			if err != nil {
-				panic(err)
+				logrus.Fatalf("error copying configmaps: %v", err)
 			}
-			_, err = f.WriteString(data)
-			if err != nil {
-				panic(err)
+			if !*loop {
+				logrus.Infoln("exiting")
+				os.Exit(0)
 			}
+		case <-stopChannel:
+			logrus.Infoln("exiting")
+			os.Exit(0)
 		}
 	}
 }
